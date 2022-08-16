@@ -3,14 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use crate::here;
 use anyhow::{bail, Context, Result};
 use rustdoc_types::{Crate, FORMAT_VERSION};
 use serde::Deserialize;
-use smithy_rs_tool_common::macros::here;
-use smithy_rs_tool_common::shell::{handle_failure, ShellOperation};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Output};
 
 #[derive(Deserialize)]
 struct CrateFormatVersion {
@@ -19,6 +18,8 @@ struct CrateFormatVersion {
 
 /// Runs the `cargo rustdoc` command required to produce Rustdoc's JSON output with a nightly compiler.
 pub struct CargoRustDocJson {
+    /// Name of the crate (as specified in the Cargo.toml file)
+    crate_name: String,
     /// Path of the crate to examine
     crate_path: PathBuf,
     /// Expected `target/` directory where the output will be
@@ -29,26 +30,23 @@ pub struct CargoRustDocJson {
 
 impl CargoRustDocJson {
     pub fn new(
+        crate_name: impl Into<String>,
         crate_path: impl Into<PathBuf>,
         target_path: impl Into<PathBuf>,
         features: Vec<String>,
     ) -> Self {
         CargoRustDocJson {
+            crate_name: crate_name.into(),
             crate_path: crate_path.into(),
             target_path: target_path.into(),
             features,
         }
     }
-}
 
-impl ShellOperation for CargoRustDocJson {
-    type Output = Crate;
-
-    fn run(&self) -> Result<Crate> {
+    pub fn run(&self) -> Result<Crate> {
         let cargo = std::env::var("CARGO")
             .ok()
             .unwrap_or_else(|| "cargo".to_string());
-        let crate_path = self.crate_path.canonicalize().context(here!())?;
 
         let mut command = Command::new(&cargo);
         command.current_dir(&self.crate_path).arg("rustdoc");
@@ -68,12 +66,11 @@ impl ShellOperation for CargoRustDocJson {
             .context(here!("failed to run nightly rustdoc"))?;
         handle_failure("rustdoc", &output)?;
 
-        let crate_name = crate_path.file_name().expect("file name").to_string_lossy();
         let output_file_name = self
             .target_path
             .canonicalize()
             .context(here!())?
-            .join(format!("doc/{}.json", crate_name.replace('-', "_")));
+            .join(format!("doc/{}.json", self.crate_name.replace('-', "_")));
 
         let json = fs::read_to_string(output_file_name).context(here!())?;
         let format_version: CrateFormatVersion = serde_json::from_str(&json)
@@ -99,4 +96,26 @@ impl ShellOperation for CargoRustDocJson {
             .context(here!())?;
         Ok(package)
     }
+}
+
+pub fn handle_failure(operation_name: &str, output: &Output) -> Result<(), anyhow::Error> {
+    if !output.status.success() {
+        return Err(capture_error(operation_name, output));
+    }
+    Ok(())
+}
+
+pub fn capture_error(operation_name: &str, output: &Output) -> anyhow::Error {
+    let message = format!(
+        "Failed to {name}:\nStatus: {status}\nStdout: {stdout}\nStderr: {stderr}\n",
+        name = operation_name,
+        status = if let Some(code) = output.status.code() {
+            format!("{}", code)
+        } else {
+            "Killed by signal".to_string()
+        },
+        stdout = String::from_utf8_lossy(&output.stdout),
+        stderr = String::from_utf8_lossy(&output.stderr)
+    );
+    anyhow::Error::msg(message)
 }

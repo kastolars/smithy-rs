@@ -3,15 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::error::ErrorPrinter;
-use crate::visitor::Visitor;
 use anyhow::{anyhow, bail};
 use anyhow::{Context, Result};
+use cargo_check_external_types::cargo::CargoRustDocJson;
+use cargo_check_external_types::error::ErrorPrinter;
+use cargo_check_external_types::here;
+use cargo_check_external_types::visitor::Visitor;
 use cargo_metadata::{CargoOpt, Metadata};
 use clap::Parser;
 use owo_colors::{OwoColorize, Stream};
-use smithy_rs_tool_common::macros::here;
-use smithy_rs_tool_common::shell::ShellOperation;
+use std::borrow::Cow;
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -19,12 +20,6 @@ use std::process;
 use std::str::FromStr;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
-
-mod cargo;
-mod config;
-mod error;
-mod path;
-mod visitor;
 
 #[derive(Debug)]
 enum OutputFormat {
@@ -57,7 +52,7 @@ impl FromStr for OutputFormat {
 }
 
 #[derive(clap::Args, Debug)]
-struct ApiLinterArgs {
+struct CheckExternalTypesArgs {
     /// Enables all crate features
     #[clap(long)]
     all_features: bool,
@@ -84,7 +79,7 @@ struct ApiLinterArgs {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, bin_name = "cargo")]
 enum Args {
-    ApiLinter(ApiLinterArgs),
+    CheckExternalTypes(CheckExternalTypesArgs),
 }
 
 enum Error {
@@ -110,7 +105,7 @@ fn main() {
 }
 
 fn run_main() -> Result<(), Error> {
-    let Args::ApiLinter(args) = Args::parse();
+    let Args::CheckExternalTypes(args) = Args::parse();
     if args.verbose {
         let filter_layer = EnvFilter::try_from_default_env()
             .or_else(|_| EnvFilter::try_new("debug"))
@@ -153,13 +148,21 @@ fn run_main() -> Result<(), Error> {
             .expect("parent path")
             .to_path_buf()
     } else {
-        std::env::current_dir().context(here!())?
+        std::env::current_dir()
+            .context(here!())?
+            .canonicalize()
+            .context(here!())?
     };
     let cargo_metadata = cargo_metadata_cmd.exec().context(here!())?;
     let cargo_features = resolve_features(&cargo_metadata)?;
 
     eprintln!("Running rustdoc to produce json doc output...");
-    let package = cargo::CargoRustDocJson::new(
+    let package = CargoRustDocJson::new(
+        &*cargo_metadata
+            .root_package()
+            .as_ref()
+            .map(|package| Cow::Borrowed(package.name.as_str()))
+            .unwrap_or_else(|| crate_path.file_name().expect("file name").to_string_lossy()),
         &crate_path,
         &cargo_metadata.target_directory,
         cargo_features,

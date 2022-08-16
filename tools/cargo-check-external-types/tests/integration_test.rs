@@ -3,23 +3,34 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use cargo_check_external_types::cargo::handle_failure;
 use pretty_assertions::assert_str_eq;
-use smithy_rs_tool_common::shell::{handle_failure, output_text};
 use std::fs;
 use std::path::Path;
+use std::process::Output;
 use test_bin::get_test_bin;
 
+/// Returns (stdout, stderr)
+pub fn output_text(output: &Output) -> (String, String) {
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
+}
+
 fn run_with_args(in_path: impl AsRef<Path>, args: &[&str]) -> String {
-    let mut cmd = get_test_bin("cargo-api-linter");
+    let mut cmd = get_test_bin("cargo-check-external-types");
     cmd.current_dir(in_path.as_ref());
-    cmd.arg("api-linter");
+    cmd.arg("check-external-types");
     for &arg in args {
         cmd.arg(arg);
     }
-    let output = cmd.output().expect("failed to start cargo-api-linter");
+    let output = cmd
+        .output()
+        .expect("failed to start cargo-check-external-types");
     match output.status.code() {
         Some(1) => { /* expected */ }
-        _ => handle_failure("cargo-api-linter", &output).unwrap(),
+        _ => handle_failure("cargo-check-external-types", &output).unwrap(),
     }
     let (stdout, _) = output_text(&output);
     stdout

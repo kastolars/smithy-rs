@@ -1,11 +1,11 @@
 [package]
-name = "cargo-api-linter"
-version = "0.1.0"
+name = "cargo-check-external-types"
+version = "0.1.1"
 authors = ["AWS Rust SDK Team <aws-sdk-rust@amazon.com>", "John DiSanti <jdisanti@amazon.com>"]
+description = "Static analysis tool to detect external types exposed in a library's public API."
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/awslabs/smithy-rs"
-publish = false
 
 [dependencies]
 anyhow = "1"
@@ -16,7 +16,6 @@ pest = "2" # For pretty error formatting
 rustdoc-types = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-smithy-rs-tool-common = { version = "0.1", path = "../smithy-rs-tool-common" }
 toml = "0.5"
 tracing = "0.1"
 tracing-attributes = "0.1"
