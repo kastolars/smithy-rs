@@ -14,9 +14,9 @@ use super::{layer::InstrumentLayer, sensitivity::Sensitivity};
 
 /// An [`Plugin`] which applies [`InstrumentLayer`] to all operations in the builder.
 #[derive(Debug)]
-pub struct TracePlugin;
+pub struct InstrumentPlugin;
 
-impl<P, Op, S, L> Plugin<P, Op, S, L> for TracePlugin
+impl<P, Op, S, L> Plugin<P, Op, S, L> for InstrumentPlugin
 where
     Op: OperationShape,
     Op: Sensitivity,
@@ -33,15 +33,15 @@ where
 }
 
 /// An extension trait for applying [`InstrumentLayer`] to all operations.
-pub trait TraceExt: Pluggable<TracePlugin> {
+pub trait InstrumentExt: Pluggable<InstrumentPlugin> {
     /// Applies [`InstrumentLayer`] to all operations. See [`InstrumentOperation`](super::InstrumentOperation) for more
     /// information.
-    fn trace(self) -> Self::Output
+    fn instrument(self) -> Self::Output
     where
         Self: Sized,
     {
-        self.apply(TracePlugin)
+        self.apply(InstrumentPlugin)
     }
 }
 
-impl<Builder> TraceExt for Builder where Builder: Pluggable<TracePlugin> {}
+impl<Builder> InstrumentExt for Builder where Builder: Pluggable<InstrumentPlugin> {}
