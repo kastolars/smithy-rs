@@ -552,13 +552,7 @@ class ServerHttpSensitivityGenerator(
 
     private fun defaultResponseFmt(): MakeFmt {
         val type = writable {
-            rustTemplate(
-                """#{SmithyHttpServer}::logging::sensitivity::ResponseFmt<
-                #{SmithyHttpServer}::logging::sensitivity::MakeIdentity,
-                #{SmithyHttpServer}::logging::sensitivity::MakeIdentity
-                >""",
-                *codegenScope,
-            )
+            rustTemplate("#{SmithyHttpServer}::logging::sensitivity::DefaultResponseFmt", *codegenScope)
         }
 
         val value = writable {

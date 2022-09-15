@@ -32,6 +32,7 @@ impl<Headers, Uri> Debug for RequestFmt<Headers, Uri> {
     }
 }
 
+/// Default [`RequestFmt`].
 pub type DefaultRequestFmt = RequestFmt<MakeIdentity, MakeUri<MakeIdentity, MakeIdentity>>;
 
 impl Default for DefaultRequestFmt {
