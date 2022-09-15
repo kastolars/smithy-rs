@@ -5,6 +5,7 @@
 
 package software.amazon.smithy.rust.codegen.server.smithy.generators
 
+import io.kotest.assertions.fail
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import software.amazon.smithy.model.pattern.UriPattern
@@ -134,7 +135,7 @@ class ServerHttpSensitivityGeneratorTest {
         testProject.lib { writer ->
             writer.unitTest("query_closure") {
                 withBlock("let closure = ", ";") {
-                    generator.renderQueryClosure(writer, querySensitivity)
+                    querySensitivity.closure()()
                 }
                 rustTemplate(
                     """
@@ -182,7 +183,7 @@ class ServerHttpSensitivityGeneratorTest {
         testProject.lib { writer ->
             writer.unitTest("query_params_closure") {
                 withBlock("let closure = ", ";") {
-                    generator.renderQueryClosure(writer, querySensitivity)
+                    querySensitivity.closure()()
                 }
                 rustTemplate(
                     """
@@ -230,13 +231,12 @@ class ServerHttpSensitivityGeneratorTest {
         val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
         testProject.lib { writer ->
             writer.unitTest("query_params_special_closure") {
-                withBlock("let closure = ", ";") {
-                    generator.renderQueryClosure(writer, querySensitivity)
-                }
                 rustTemplate(
                     """
+                    let closure = #{Closure:W};
                     assert_eq!(closure("wildcard"), #{SmithyHttpServer}::logging::sensitivity::uri::QueryMarker { key: true, value: false });
                     """,
+                    "Closure" to querySensitivity.closure(),
                     *codegenScope,
                 )
             }
@@ -279,13 +279,12 @@ class ServerHttpSensitivityGeneratorTest {
         val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
         testProject.lib { writer ->
             writer.unitTest("query_params_special_closure") {
-                withBlock("let closure = ", ";") {
-                    generator.renderQueryClosure(writer, querySensitivity)
-                }
                 rustTemplate(
                     """
+                    let closure = #{Closure:W};
                     assert_eq!(closure("wildcard"), #{SmithyHttpServer}::logging::sensitivity::uri::QueryMarker { key: false, value: true });
                     """,
+                    "Closure" to querySensitivity.closure(),
                     *codegenScope,
                 )
             }
@@ -328,9 +327,7 @@ class ServerHttpSensitivityGeneratorTest {
         val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
         testProject.lib { writer ->
             writer.unitTest("header_closure") {
-                withBlock("let closure = ", ";") {
-                    generator.renderHeaderClosure(writer, headerData)
-                }
+                rustTemplate("let closure = #{Closure:W};", "Closure" to headerData.closure())
                 rustTemplate(
                     """
                     let name = #{Http}::header::HeaderName::from_static("header-a");
@@ -377,11 +374,9 @@ class ServerHttpSensitivityGeneratorTest {
         val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
         testProject.lib { writer ->
             writer.unitTest("prefix_headers_closure") {
-                withBlock("let closure = ", ";") {
-                    generator.renderHeaderClosure(writer, headerData)
-                }
                 rustTemplate(
                     """
+                    let closure = #{Closure:W};
                     let name = #{Http}::header::HeaderName::from_static("prefix-a");
                     assert_eq!(closure(&name), #{SmithyHttpServer}::logging::sensitivity::headers::HeaderMarker { value: true, key_suffix: Some(7) });
                     let name = #{Http}::header::HeaderName::from_static("prefix-b");
@@ -389,6 +384,7 @@ class ServerHttpSensitivityGeneratorTest {
                     let name = #{Http}::header::HeaderName::from_static("other");
                     assert_eq!(closure(&name), #{SmithyHttpServer}::logging::sensitivity::headers::HeaderMarker { value: false, key_suffix: None });
                     """,
+                    "Closure" to headerData.closure(),
                     *codegenScope,
                 )
             }
@@ -431,11 +427,9 @@ class ServerHttpSensitivityGeneratorTest {
         val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
         testProject.lib { writer ->
             writer.unitTest("prefix_headers_special_closure") {
-                withBlock("let closure = ", ";") {
-                    generator.renderHeaderClosure(writer, headerData)
-                }
                 rustTemplate(
                     """
+                    let closure = #{Closure:W};
                     let name = #{Http}::header::HeaderName::from_static("prefix-a");
                     assert_eq!(closure(&name), #{SmithyHttpServer}::logging::sensitivity::headers::HeaderMarker { value: false, key_suffix: Some(7) });
                     let name = #{Http}::header::HeaderName::from_static("prefix-b");
@@ -443,6 +437,7 @@ class ServerHttpSensitivityGeneratorTest {
                     let name = #{Http}::header::HeaderName::from_static("other");
                     assert_eq!(closure(&name), #{SmithyHttpServer}::logging::sensitivity::headers::HeaderMarker { value: false, key_suffix: None });
                     """,
+                    "Closure" to headerData.closure(),
                     *codegenScope,
                 )
             }
@@ -487,11 +482,9 @@ class ServerHttpSensitivityGeneratorTest {
         val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
         testProject.lib { writer ->
             writer.unitTest("prefix_headers_special_closure") {
-                withBlock("let closure = ", ";") {
-                    generator.renderHeaderClosure(writer, headerData)
-                }
                 rustTemplate(
                     """
+                    let closure = #{Closure:W};
                     let name = #{Http}::header::HeaderName::from_static("prefix-a");
                     assert_eq!(closure(&name), #{SmithyHttpServer}::logging::sensitivity::headers::HeaderMarker { value: true, key_suffix: None });
                     let name = #{Http}::header::HeaderName::from_static("prefix-b");
@@ -499,6 +492,7 @@ class ServerHttpSensitivityGeneratorTest {
                     let name = #{Http}::header::HeaderName::from_static("other");
                     assert_eq!(closure(&name), #{SmithyHttpServer}::logging::sensitivity::headers::HeaderMarker { value: false, key_suffix: None });
                     """,
+                    "Closure" to headerData.closure(),
                     *codegenScope,
                 )
             }
@@ -536,22 +530,26 @@ class ServerHttpSensitivityGeneratorTest {
         val labeledUriIndexes = generator.findUriLabelIndexes(uri, input)
         assertEquals(labeledUriIndexes, listOf(2, 1))
 
-        val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
-        testProject.lib { writer ->
-            writer.unitTest("uri_closure") {
-                withBlock("let closure = ", ";") {
-                    generator.renderLabelClosure(writer, labeledUriIndexes)
+        when (val labelData = generator.findLabelSensitivity(uri, input)) {
+            is ServerHttpSensitivityGenerator.LabelSensitivity.Greedy -> fail("expected normal http label")
+            is ServerHttpSensitivityGenerator.LabelSensitivity.Normal -> {
+                val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
+                testProject.lib { writer ->
+                    writer.unitTest("uri_closure") {
+                        rustTemplate(
+                            """
+                            let closure = #{Closure:W};
+                            assert_eq!(closure(0), false);
+                            assert_eq!(closure(1), true);
+                            assert_eq!(closure(2), true);
+                            """,
+                            "Closure" to labelData.closure(),
+                            *codegenScope,
+                        )
+                    }
                 }
-                rustTemplate(
-                    """
-                    assert_eq!(closure(0), false);
-                    assert_eq!(closure(1), true);
-                    assert_eq!(closure(2), true);
-                    """,
-                    *codegenScope,
-                )
+                testProject.compileAndTest()
             }
         }
-        testProject.compileAndTest()
     }
 }
