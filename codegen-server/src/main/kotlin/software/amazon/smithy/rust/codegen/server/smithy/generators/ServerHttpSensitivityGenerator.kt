@@ -73,7 +73,7 @@ class StatusCodeSensitivity(private val sensitive: Boolean, runtimeConfig: Runti
 sealed class LabelSensitivity(runtimeConfig: RuntimeConfig) {
     private val codegenScope = arrayOf("SmithyHttpServer" to ServerCargoDependency.SmithyHttpServer(runtimeConfig).asType())
 
-    class Normal(private val indexes: List<Int>, runtimeConfig: RuntimeConfig) : LabelSensitivity(runtimeConfig) {
+    class Normal(val indexes: List<Int>, runtimeConfig: RuntimeConfig) : LabelSensitivity(runtimeConfig) {
         /** Returns the closure used during construction. */
         fun closure(): Writable = writable {
             withBlock("{", "} as fn(_) -> _") {
@@ -92,18 +92,25 @@ sealed class LabelSensitivity(runtimeConfig: RuntimeConfig) {
     }
     class Greedy(val suffixPosition: Int, runtimeConfig: RuntimeConfig) : LabelSensitivity(runtimeConfig)
 
+    fun hasRedactions(): Boolean = when (this) {
+        is Normal -> indexes.isNotEmpty()
+        is Greedy -> true
+    }
+
     /** Returns the type of the `MakeFmt`. */
-    fun type(): Writable = when (this) {
+    fun type(): Writable = if (hasRedactions()) when (this) {
         is Normal -> writable {
             rustTemplate("#{SmithyHttpServer}::logging::sensitivity::uri::MakeLabel<fn(usize) -> bool>", *codegenScope)
         }
         is Greedy -> writable {
             rustTemplate("#{SmithyHttpServer}::logging::sensitivity::uri::MakeGreedyLabel", *codegenScope)
         }
+    } else writable {
+        rustTemplate("#{SmithyHttpServer}::logging::MakeIdentity", *codegenScope)
     }
 
     /** Returns the setter enclosing the closure or suffix position. */
-    fun setter(): Writable = when (this) {
+    fun setter(): Writable = if (hasRedactions()) when (this) {
         is Normal -> writable {
             rustTemplate(".label(#{Closure:W})", "Closure" to closure())
         }
@@ -113,7 +120,7 @@ sealed class LabelSensitivity(runtimeConfig: RuntimeConfig) {
                 rust(".greedy_label($suffixPosition)")
             }
         }
-    }
+    } else writable {}
 }
 
 /** Models the ways headers can be bound and sensitive */
@@ -501,7 +508,7 @@ class ServerHttpSensitivityGenerator(
             rustTemplate("#{SmithyHttpServer}::logging::sensitivity::DefaultRequestFmt", *codegenScope)
         }
         val value = writable {
-            rustTemplate("#{SmithyHttpServer}::logging::sensitivity::ResponseFmt::new()", *codegenScope)
+            rustTemplate("#{SmithyHttpServer}::logging::sensitivity::RequestFmt::new()", *codegenScope)
         }
         return MakeFmt(type, value)
     }
