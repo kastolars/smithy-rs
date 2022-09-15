@@ -153,15 +153,9 @@ sealed class HeaderSensitivity(
     ) : HeaderSensitivity(headerKeys, runtimeConfig)
 
     /** Is there anything to redact? */
-    private fun hasRedactions(): Boolean {
-        return when (this) {
-            is NotSensitiveMapValue -> {
-                prefixHeader != null || headerKeys.isNotEmpty()
-            }
-            is SensitiveMapValue -> {
-                true
-            }
-        }
+    internal fun hasRedactions(): Boolean = headerKeys.isNotEmpty() || when (this) {
+        is NotSensitiveMapValue -> prefixHeader != null
+        is SensitiveMapValue -> true
     }
 
     /** Returns the type of the `MakeDebug`. */
@@ -244,14 +238,12 @@ sealed class QuerySensitivity(
     class SensitiveMapValue(allKeysSensitive: Boolean, runtimeConfig: RuntimeConfig) : QuerySensitivity(allKeysSensitive, runtimeConfig)
 
     /** Is there anything to redact? */
-    private fun hasRedactions(): Boolean {
-        return when (this) {
-            is NotSensitiveMapValue -> {
-                allKeysSensitive || queryKeys.isNotEmpty()
-            }
-            is SensitiveMapValue -> {
-                true
-            }
+    internal fun hasRedactions(): Boolean = when (this) {
+        is NotSensitiveMapValue -> {
+            allKeysSensitive || queryKeys.isNotEmpty()
+        }
+        is SensitiveMapValue -> {
+            true
         }
     }
 
@@ -391,8 +383,10 @@ class ServerHttpSensitivityGenerator(
         return if (valuesSensitive) {
             // All values are sensitive
             HeaderSensitivity.SensitiveMapValue(headerKeys, keySensitive, httpPrefixName, runtimeConfig)
-        } else {
+        } else if (keySensitive) {
             HeaderSensitivity.NotSensitiveMapValue(headerKeys, httpPrefixName, runtimeConfig)
+        } else {
+            HeaderSensitivity.NotSensitiveMapValue(headerKeys, null, runtimeConfig)
         }
     }
 
