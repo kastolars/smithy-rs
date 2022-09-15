@@ -8,6 +8,7 @@ use tower::Layer;
 use super::{InstrumentOperation, MakeIdentity};
 
 /// A [`Layer`] used to apply [`InstrumentOperation`].
+#[derive(Debug)]
 pub struct InstrumentLayer<RequestMakeFmt = MakeIdentity, ResponseMakeFmt = MakeIdentity> {
     operation_name: &'static str,
     make_request: RequestMakeFmt,

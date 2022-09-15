@@ -32,7 +32,9 @@ impl<Headers, StatusCode> Debug for ResponseFmt<Headers, StatusCode> {
     }
 }
 
-impl Default for ResponseFmt<MakeIdentity, MakeIdentity> {
+pub type DefaultRequestFmt = ResponseFmt<MakeIdentity, MakeIdentity>;
+
+impl Default for DefaultRequestFmt {
     fn default() -> Self {
         Self {
             headers: MakeIdentity,
@@ -41,7 +43,7 @@ impl Default for ResponseFmt<MakeIdentity, MakeIdentity> {
     }
 }
 
-impl ResponseFmt<MakeIdentity, MakeIdentity> {
+impl DefaultRequestFmt {
     /// Constructs a new [`ResponseFmt`] with no redactions.
     pub fn new() -> Self {
         Self::default()

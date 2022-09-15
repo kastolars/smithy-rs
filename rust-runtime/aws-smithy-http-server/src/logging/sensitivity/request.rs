@@ -32,7 +32,9 @@ impl<Headers, Uri> Debug for RequestFmt<Headers, Uri> {
     }
 }
 
-impl Default for RequestFmt<MakeIdentity, MakeUri<MakeIdentity, MakeIdentity>> {
+pub type DefaultRequestFmt = RequestFmt<MakeIdentity, MakeUri<MakeIdentity, MakeIdentity>>;
+
+impl Default for DefaultRequestFmt {
     fn default() -> Self {
         Self {
             headers: MakeIdentity,
@@ -41,7 +43,7 @@ impl Default for RequestFmt<MakeIdentity, MakeUri<MakeIdentity, MakeIdentity>> {
     }
 }
 
-impl RequestFmt<MakeIdentity, MakeUri<MakeIdentity, MakeIdentity>> {
+impl DefaultRequestFmt {
     /// Constructs a new [`RequestFmt`] with no redactions.
     pub fn new() -> Self {
         Self::default()
