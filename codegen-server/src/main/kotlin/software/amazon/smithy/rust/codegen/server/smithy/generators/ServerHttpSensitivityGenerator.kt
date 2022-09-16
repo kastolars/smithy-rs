@@ -61,27 +61,13 @@ class StatusCodeSensitivity(private val sensitive: Boolean, runtimeConfig: Runti
     }
 }
 
+/** Represents the information needed to specify the position of a greedy label. */
 data class GreedyLabel(
-    val index: Int,
-    val suffix: String,
+    // The segment index the greedy label.
+    val segmentIndex: Int,
+    // The number of characters from the end of the URI the greedy label terminates.
+    val endOffset: Int,
 )
-
-internal fun findGreedyLabel(uriPattern: UriPattern): GreedyLabel? = uriPattern
-    .segments
-    .asIterable()
-    .withIndex()
-    .find { (_, segment) ->
-        segment.isGreedyLabel
-    }
-    ?.let { (index, segment) ->
-        val remainingSegments = uriPattern.segments.asIterable().drop(index + 1)
-        val suffix = if (remainingSegments.isNotEmpty()) {
-            remainingSegments.joinToString(prefix = "/", separator = "/")
-        } else {
-            ""
-        }
-        GreedyLabel(index, suffix)
-    }
 
 /** Models the ways labels can be bound and sensitive. */
 class LabelSensitivity(private val labelIndexes: List<Int>, private val greedyLabel: GreedyLabel?, runtimeConfig: RuntimeConfig) {
@@ -89,14 +75,18 @@ class LabelSensitivity(private val labelIndexes: List<Int>, private val greedyLa
 
     /** Returns the closure used during construction. */
     fun closure(): Writable = writable {
-        rustTemplate(
-            """
-            {
-                |index: usize| matches!(index, ${labelIndexes.joinToString("|")})
-            } as fn(_) -> _
-            """,
-            *codegenScope,
-        )
+        if (labelIndexes.isNotEmpty()) {
+            rustTemplate(
+                """
+                {
+                    |index: usize| matches!(index, ${labelIndexes.joinToString("|")})
+                } as fn(_) -> _
+                """,
+                *codegenScope,
+            )
+        } else {
+            rust("{ |_index: usize| false }  as fn(_) -> _")
+        }
     }
     private fun hasRedactions(): Boolean = labelIndexes.isNotEmpty() || greedyLabel != null
 
@@ -112,7 +102,7 @@ class LabelSensitivity(private val labelIndexes: List<Int>, private val greedyLa
         if (greedyLabel != null) {
             rustTemplate(
                 """
-                Some(#{SmithyHttpServer}::logging::sensitivity::uri::GreedyLabel::new(${greedyLabel.index}, "${greedyLabel.suffix}"))""",
+                Some(#{SmithyHttpServer}::logging::sensitivity::uri::GreedyLabel::new(${greedyLabel.segmentIndex}, ${greedyLabel.endOffset}))""",
                 *codegenScope,
             )
         } else {
@@ -428,20 +418,41 @@ class ServerHttpSensitivityGenerator(
         return QuerySensitivity.NotSensitiveMapValue(queries, keysSensitive, runtimeConfig)
     }
 
-    internal fun findUriLabelIndexes(uriPattern: UriPattern, rootShape: Shape): List<Int> {
-        val uriLabels: Map<String, Int> = uriPattern
+    /** Constructs `LabelSensitivity` of a `Shape` */
+    internal fun findLabelSensitivity(uriPattern: UriPattern, rootShape: Shape): LabelSensitivity {
+        val sensitiveLabels = findSensitiveBound<HttpLabelTrait>(rootShape)
+
+        val labelMap: Map<String, Int> = uriPattern
             .segments
             .withIndex()
             .filter { (_, segment) -> segment.isLabel }.associate { (index, segment) -> Pair(segment.content, index) }
-        return findSensitiveBound<HttpLabelTrait>(rootShape).mapNotNull { uriLabels[it.memberName] }
-    }
+        val labelsIndex = sensitiveLabels.mapNotNull { labelMap[it.memberName] }
 
-    /** Constructs `LabelSensitivity` of a `Shape` */
-    internal fun findLabelSensitivity(uriPattern: UriPattern, rootShape: Shape): LabelSensitivity = LabelSensitivity(
-        findUriLabelIndexes(uriPattern, rootShape),
-        findGreedyLabel(uriPattern),
-        runtimeConfig,
-    )
+        val greedyLabel = uriPattern
+            .segments
+            .asIterable()
+            .withIndex()
+            .find { (_, segment) ->
+                segment.isGreedyLabel
+            }?.let { (index, segment) ->
+                // Check if sensitive
+                if (sensitiveLabels.find { it.memberName == segment.content } != null) {
+                    index
+                } else {
+                    null
+                }
+            }?.let { index ->
+                val remainingSegments = uriPattern.segments.asIterable().drop(index + 1)
+                val suffix = if (remainingSegments.isNotEmpty()) {
+                    remainingSegments.joinToString(prefix = "/", separator = "/")
+                } else {
+                    ""
+                }
+                GreedyLabel(index, suffix.length)
+            }
+
+        return LabelSensitivity(labelsIndex, greedyLabel, runtimeConfig)
+    }
 
     // Find member shapes with trait `B` contained in a shape enjoying `A`.
     // [trait|A] ~> [trait|B]

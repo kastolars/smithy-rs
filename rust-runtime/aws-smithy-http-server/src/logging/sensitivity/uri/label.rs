@@ -102,10 +102,9 @@ where
 
             if hit_greedy {
                 if let Some(end_index) = self.path.len().checked_sub(greedy_label.end_offset) {
-                    if greedy_start + 1 <= end_index {
+                    if greedy_start < end_index {
                         let greedy_redaction = Sensitive(&self.path[greedy_start + 1..end_index]);
                         let remainder = &self.path[end_index..];
-                        println!("GREEDY: {greedy_redaction} vs {}", &self.path[greedy_start..end_index]);
                         write!(f, "/{greedy_redaction}{remainder}")?;
                     } else {
                         write!(f, "{}", &self.path[greedy_start..])?;
