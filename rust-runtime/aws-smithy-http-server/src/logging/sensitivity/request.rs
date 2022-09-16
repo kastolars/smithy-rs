@@ -13,7 +13,7 @@ use crate::logging::{MakeFmt, MakeIdentity};
 
 use super::{
     headers::{HeaderMarker, MakeHeaders},
-    uri::{MakeGreedyLabel, MakeLabel, MakeQuery, MakeUri, QueryMarker},
+    uri::{GreedyLabel, MakeLabel, MakeQuery, MakeUri, QueryMarker},
 };
 
 /// Allows the modification the requests URIs [`Display`](std::fmt::Display) and headers
@@ -70,27 +70,21 @@ impl<Header, P, Q> RequestFmt<Header, MakeUri<P, Q>> {
     /// Marks parts of the URI as sensitive.
     ///
     /// See [`Label`](super::uri::Label) for more info.
-    pub fn label<F>(self, label: F) -> RequestFmt<Header, MakeUri<MakeLabel<F>, Q>>
+    pub fn label<F>(
+        self,
+        label_marker: F,
+        greedy_label: Option<GreedyLabel>,
+    ) -> RequestFmt<Header, MakeUri<MakeLabel<F>, Q>>
     where
         F: Fn(usize) -> bool,
     {
         RequestFmt {
             headers: self.headers,
             uri: MakeUri {
-                make_path: MakeLabel(label),
-                make_query: self.uri.make_query,
-            },
-        }
-    }
-
-    /// Marks parts of the URI as sensitive.
-    ///
-    /// See [`GreedyLabel`](super::uri::GreedyLabel) for more info.
-    pub fn greedy_label(self, position: usize) -> RequestFmt<Header, MakeUri<MakeGreedyLabel, Q>> {
-        RequestFmt {
-            headers: self.headers,
-            uri: MakeUri {
-                make_path: MakeGreedyLabel(position),
+                make_path: MakeLabel {
+                    label_marker,
+                    greedy_label,
+                },
                 make_query: self.uri.make_query,
             },
         }

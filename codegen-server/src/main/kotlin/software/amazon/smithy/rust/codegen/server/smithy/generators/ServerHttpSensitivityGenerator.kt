@@ -27,7 +27,6 @@ import software.amazon.smithy.rust.codegen.client.rustlang.Writable
 import software.amazon.smithy.rust.codegen.client.rustlang.asType
 import software.amazon.smithy.rust.codegen.client.rustlang.plus
 import software.amazon.smithy.rust.codegen.client.rustlang.rust
-import software.amazon.smithy.rust.codegen.client.rustlang.rustBlock
 import software.amazon.smithy.rust.codegen.client.rustlang.rustBlockTemplate
 import software.amazon.smithy.rust.codegen.client.rustlang.rustTemplate
 import software.amazon.smithy.rust.codegen.client.rustlang.withBlock
@@ -38,13 +37,6 @@ import software.amazon.smithy.rust.codegen.core.util.getTrait
 import software.amazon.smithy.rust.codegen.core.util.hasTrait
 import software.amazon.smithy.rust.codegen.server.smithy.ServerCargoDependency
 import java.util.*
-
-internal fun findUriGreedyLabelPosition(uriPattern: UriPattern): Int? {
-    return uriPattern
-        .greedyLabel
-        .orElse(null)
-        ?.let { uriPattern.toString().indexOf("$it") }
-}
 
 /** Models the ways status codes can be bound and sensitive. */
 class StatusCodeSensitivity(private val sensitive: Boolean, runtimeConfig: RuntimeConfig) {
@@ -69,58 +61,69 @@ class StatusCodeSensitivity(private val sensitive: Boolean, runtimeConfig: Runti
     }
 }
 
+data class GreedyLabel(
+    val index: Int,
+    val suffix: String,
+)
+
+internal fun findGreedyLabel(uriPattern: UriPattern): GreedyLabel? = uriPattern
+    .segments
+    .asIterable()
+    .withIndex()
+    .find { (_, segment) ->
+        segment.isGreedyLabel
+    }
+    ?.let { (index, segment) ->
+        val remainingSegments = uriPattern.segments.asIterable().drop(index + 1)
+        val suffix = if (remainingSegments.isNotEmpty()) {
+            remainingSegments.joinToString(prefix = "/", separator = "/")
+        } else {
+            ""
+        }
+        GreedyLabel(index, suffix)
+    }
+
 /** Models the ways labels can be bound and sensitive. */
-sealed class LabelSensitivity(runtimeConfig: RuntimeConfig) {
+class LabelSensitivity(private val labelIndexes: List<Int>, private val greedyLabel: GreedyLabel?, runtimeConfig: RuntimeConfig) {
     private val codegenScope = arrayOf("SmithyHttpServer" to ServerCargoDependency.SmithyHttpServer(runtimeConfig).asType())
 
-    class Normal(val indexes: List<Int>, runtimeConfig: RuntimeConfig) : LabelSensitivity(runtimeConfig) {
-        /** Returns the closure used during construction. */
-        fun closure(): Writable = writable {
-            withBlock("{", "} as fn(_) -> _") {
-                rustBlock("|index: usize|") {
-                    if (indexes.isNotEmpty()) {
-                        withBlock("matches!(index,", ")") {
-                            val matches = indexes.joinToString("|") { "$it" }
-                            rust(matches)
-                        }
-                    } else {
-                        rust("{_ = index; false}")
-                    }
-                }
-            }
-        }
+    /** Returns the closure used during construction. */
+    fun closure(): Writable = writable {
+        rustTemplate(
+            """
+            {
+                |index: usize| matches!(index, ${labelIndexes.joinToString("|")})
+            } as fn(_) -> _
+            """,
+            *codegenScope,
+        )
     }
-    class Greedy(val suffixPosition: Int, runtimeConfig: RuntimeConfig) : LabelSensitivity(runtimeConfig)
-
-    fun hasRedactions(): Boolean = when (this) {
-        is Normal -> indexes.isNotEmpty()
-        is Greedy -> true
-    }
+    private fun hasRedactions(): Boolean = labelIndexes.isNotEmpty() || greedyLabel != null
 
     /** Returns the type of the `MakeFmt`. */
-    fun type(): Writable = if (hasRedactions()) when (this) {
-        is Normal -> writable {
-            rustTemplate("#{SmithyHttpServer}::logging::sensitivity::uri::MakeLabel<fn(usize) -> bool>", *codegenScope)
-        }
-        is Greedy -> writable {
-            rustTemplate("#{SmithyHttpServer}::logging::sensitivity::uri::MakeGreedyLabel", *codegenScope)
-        }
+    fun type(): Writable = if (hasRedactions()) writable {
+        rustTemplate("#{SmithyHttpServer}::logging::sensitivity::uri::MakeLabel<fn(usize) -> bool>", *codegenScope)
     } else writable {
         rustTemplate("#{SmithyHttpServer}::logging::MakeIdentity", *codegenScope)
     }
 
+    /** Returns the value of the `GreedyLabel`. */
+    private fun greedyLabelStruct(): Writable = writable {
+        if (greedyLabel != null) {
+            rustTemplate(
+                """
+                Some(#{SmithyHttpServer}::logging::sensitivity::uri::GreedyLabel::new(${greedyLabel.index}, "${greedyLabel.suffix}"))""",
+                *codegenScope,
+            )
+        } else {
+            rust("None")
+        }
+    }
+
     /** Returns the setter enclosing the closure or suffix position. */
-    fun setter(): Writable = if (hasRedactions()) when (this) {
-        is Normal -> writable {
-            rustTemplate(".label(#{Closure:W})", "Closure" to closure())
-        }
-        is Greedy -> {
-            val suffixPosition = suffixPosition
-            writable {
-                rust(".greedy_label($suffixPosition)")
-            }
-        }
-    } else writable {}
+    fun setter(): Writable = if (hasRedactions()) writable {
+        rustTemplate(".label(#{Closure:W}, #{GreedyLabel:W})", "Closure" to closure(), "GreedyLabel" to greedyLabelStruct())
+    } else writable { }
 }
 
 /** Models the ways headers can be bound and sensitive */
@@ -384,8 +387,10 @@ class ServerHttpSensitivityGenerator(
             // All values are sensitive
             HeaderSensitivity.SensitiveMapValue(headerKeys, keySensitive, httpPrefixName, runtimeConfig)
         } else if (keySensitive) {
+            // Only keys are sensitive
             HeaderSensitivity.NotSensitiveMapValue(headerKeys, httpPrefixName, runtimeConfig)
         } else {
+            // No values are sensitive
             HeaderSensitivity.NotSensitiveMapValue(headerKeys, null, runtimeConfig)
         }
     }
@@ -432,9 +437,11 @@ class ServerHttpSensitivityGenerator(
     }
 
     /** Constructs `LabelSensitivity` of a `Shape` */
-    internal fun findLabelSensitivity(uriPattern: UriPattern, rootShape: Shape): LabelSensitivity {
-        return findUriGreedyLabelPosition(uriPattern)?.let { LabelSensitivity.Greedy(it, runtimeConfig) } ?: findUriLabelIndexes(uriPattern, rootShape).let { LabelSensitivity.Normal(it, runtimeConfig) }
-    }
+    internal fun findLabelSensitivity(uriPattern: UriPattern, rootShape: Shape): LabelSensitivity = LabelSensitivity(
+        findUriLabelIndexes(uriPattern, rootShape),
+        findGreedyLabel(uriPattern),
+        runtimeConfig,
+    )
 
     // Find member shapes with trait `B` contained in a shape enjoying `A`.
     // [trait|A] ~> [trait|B]

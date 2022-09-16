@@ -5,7 +5,6 @@
 
 package software.amazon.smithy.rust.codegen.server.smithy.generators
 
-import io.kotest.assertions.fail
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import software.amazon.smithy.model.pattern.UriPattern
@@ -34,11 +33,19 @@ class ServerHttpSensitivityGeneratorTest {
     )
 
     @Test
-    fun `find greedy label`() {
+    fun `find greedy label end`() {
         val uri = "/pokemon-species/{name+}"
         val pattern = UriPattern.parse(uri)
-        val position = findUriGreedyLabelPosition(pattern)!!
-        assertEquals(position, 17)
+        val value = findGreedyLabel(pattern)!!
+        assertEquals(value, GreedyLabel(1, ""))
+    }
+
+    @Test
+    fun `find greedy label`() {
+        val uri = "/pokemon-species/{name+}/ash/ketchum"
+        val pattern = UriPattern.parse(uri)
+        val value = findGreedyLabel(pattern)!!
+        assertEquals(value, GreedyLabel(1, "/ash/ketchum"))
     }
 
     @Test
@@ -591,26 +598,22 @@ class ServerHttpSensitivityGeneratorTest {
         val labeledUriIndexes = generator.findUriLabelIndexes(uri, input)
         assertEquals(labeledUriIndexes, listOf(2, 1))
 
-        when (val labelData = generator.findLabelSensitivity(uri, input)) {
-            is LabelSensitivity.Greedy -> fail("expected normal http label")
-            is LabelSensitivity.Normal -> {
-                val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
-                testProject.lib { writer ->
-                    writer.unitTest("uri_closure") {
-                        rustTemplate(
-                            """
-                            let closure = #{Closure:W};
-                            assert_eq!(closure(0), false);
-                            assert_eq!(closure(1), true);
-                            assert_eq!(closure(2), true);
-                            """,
-                            "Closure" to labelData.closure(),
-                            *codegenScope,
-                        )
-                    }
-                }
-                testProject.compileAndTest()
+        val labelData = generator.findLabelSensitivity(uri, input)
+        val testProject = TestWorkspace.testProject(serverTestSymbolProvider(model))
+        testProject.lib { writer ->
+            writer.unitTest("uri_closure") {
+                rustTemplate(
+                    """
+                    let closure = #{Closure:W};
+                    assert_eq!(closure(0), false);
+                    assert_eq!(closure(1), true);
+                    assert_eq!(closure(2), true);
+                    """,
+                    "Closure" to labelData.closure(),
+                    *codegenScope,
+                )
             }
         }
+        testProject.compileAndTest()
     }
 }
